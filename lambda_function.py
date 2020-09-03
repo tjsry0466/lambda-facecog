@@ -2,7 +2,10 @@ import json
 import boto3
 import urllib
 
+import pymysql.cursors
+
 print('Loading function')
+client = boto3.client('rekognition')
 
 
 def detect_faces(photo, bucket):
@@ -104,20 +107,10 @@ def add_faces_to_collection(bucket, photo, collection_id):
                                   QualityFilter="AUTO",
                                   DetectionAttributes=['ALL'])
 
-    print('Results for ' + photo)
-    print('Faces indexed:')
-    for faceRecord in response['FaceRecords']:
-        print('  Face ID: ' + faceRecord['Face']['FaceId'])
-        print('  Location: {}'.format(faceRecord['Face']['BoundingBox']))
+    if response['ResponseMetadata']['HTTPStatusCode'] != 200:
+        return False
 
-    print('Faces not indexed:')
-    for unindexedFace in response['UnindexedFaces']:
-        print(' Location: {}'.format(
-            unindexedFace['FaceDetail']['BoundingBox']))
-        print(' Reasons:')
-        for reason in unindexedFace['Reasons']:
-            print('   ' + reason)
-    return len(response['FaceRecords'])
+    return response['FaceRecords']
 
 
 def list_faces_in_collection(collection_id):
@@ -152,48 +145,74 @@ def lambda_handler(event, context):
     photo = event['Records'][0]['s3']['object']['key']
     collection_id = 'Collection'
 
-    indexed_faces_count = add_faces_to_collection(bucket, photo, collection_id)
-    print("Faces indexed count: " + str(indexed_faces_count))
+    facedata = add_faces_to_collection(bucket, photo, collection_id)
+    for i in facedata:
+        face = i['Face']
+        facedetail = i['FaceDetail']
+        landmarks = i['FaceDetail']['Landmarks']
 
-    # faces_count=list_faces_in_collection(collection_id)
-    # print("faces count: " + str(faces_count))
-    # collection_id='family_collection'
-    # status_code=delete_collection(collection_id)
-    # print('Status code: ' + str(status_code))
+        try:
 
-    # bucket='bucket'
-    # collectionId='MyCollection'
-    # fileName='input.jpg'
-    # threshold = 70
-    # maxFaces=2
+            # Connect to the database
+            connection = pymysql.connect(host='facecog-rds.cwct330tepas.ap-northeast-2.rds.amazonaws.com',
+                                         user='facecog',
+                                         password='!j14682533',
+                                         db='facecog',
+                                         charset='utf8mb4',
+                                         cursorclass=pymysql.cursors.DictCursor)
+            with connection.cursor() as cursor:
+                # Create a new record
+                sql = "INSERT INTO face(faceId, rec_top, rec_left, rec_width, rec_height, imageId, ExternalImageId, confidence) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
+                params = (face['FaceId'], face['BoundingBox']['Top'], face['BoundingBox']['Left'], face['BoundingBox']['Width'],
+                          face['BoundingBox']['Height'], face['ImageId'], face['ExternalImageId'], face['Confidence'])
+                result = cursor.execute(sql, params)
+                print(result)
+                connection.commit()
+        except:
+            print('에러')
+        finally:
+            connection.close()
 
-    # response=client.search_faces_by_image(CollectionId=collectionId,
-    #                             Image={'S3Object':{'Bucket':bucket,'Name':fileName}},
-    #                             FaceMatchThreshold=threshold,
-    #                             MaxFaces=maxFaces)
 
-    # faceMatches=response['FaceMatches']
-    # print ('Matching faces')
-    # for match in faceMatches:
-    #         print ('FaceId:' + match['Face']['FaceId'])
-    #         print ('Similarity: ' + "{:.2f}".format(match['Similarity']) + "%")
-    #         print
+# faces_count=list_faces_in_collection(collection_id)
+# print("faces count: " + str(faces_count))
+# collection_id='family_collection'
+# status_code=delete_collection(collection_id)
+# print('Status code: ' + str(status_code))
 
-    # 얼굴 감지
-    # face_count=detect_faces(imageName, bucket)
-    # print("Faces detected: " + str(face_count))
+# bucket='bucket'
+# collectionId='MyCollection'
+# fileName='input.jpg'
+# threshold = 70
+# maxFaces=2
 
-    # 컬렉션 생성
-    # collection_id='Collection'
-    # create_collection(collection_id)
+# response=client.search_faces_by_image(CollectionId=collectionId,
+#                             Image={'S3Object':{'Bucket':bucket,'Name':fileName}},
+#                             FaceMatchThreshold=threshold,
+#                             MaxFaces=maxFaces)
 
-    # 컬렉션 리스트
-    # collection_count=list_collections()
-    # print("collections: " + str(collection_count))
+# faceMatches=response['FaceMatches']
+# print ('Matching faces')
+# for match in faceMatches:
+#         print ('FaceId:' + match['Face']['FaceId'])
+#         print ('Similarity: ' + "{:.2f}".format(match['Similarity']) + "%")
+#         print
 
-    # 컬렉션 설명
-    # collection_id='Collection'
-    # describe_collection(collection_id)
+# 얼굴 감지
+# face_count=detect_faces(imageName, bucket)
+# print("Faces detected: " + str(face_count))
+
+# 컬렉션 생성
+# collection_id='Collection'
+# create_collection(collection_id)
+
+# 컬렉션 리스트
+# collection_count=list_collections()
+# print("collections: " + str(collection_count))
+
+# 컬렉션 설명
+# collection_id='Collection'
+# describe_collection(collection_id)
 
     return {
         'statusCode': 200,
