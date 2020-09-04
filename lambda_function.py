@@ -6,6 +6,12 @@ import pymysql.cursors
 
 print('Loading function')
 client = boto3.client('rekognition')
+connection = pymysql.connect(host='facecog-rds.cwct330tepas.ap-northeast-2.rds.amazonaws.com',
+                             user='facecog',
+                             password='!j14682533',
+                             db='facecog',
+                             charset='utf8mb4',
+                             cursorclass=pymysql.cursors.DictCursor)
 
 
 def detect_faces(photo, bucket):
@@ -102,7 +108,7 @@ def add_faces_to_collection(bucket, photo, collection_id):
     response = client.index_faces(CollectionId=collection_id,
                                   Image={'S3Object': {
                                       'Bucket': bucket, 'Name': photo}},
-                                  ExternalImageId=photo,
+                                  ExternalImageId=photo.split('/')[1],
                                   MaxFaces=1,
                                   QualityFilter="AUTO",
                                   DetectionAttributes=['ALL'])
@@ -140,82 +146,169 @@ def list_faces_in_collection(collection_id):
     return faces_count
 
 
+def query(method, sql, params=[]):
+
+    result = 0
+
+    with connection.cursor() as cursor:
+        result = cursor.execute(sql, params)
+        if method == 'select':
+            result = cursor.fetchall()
+        elif method == 'insert':
+            isCommit = 1
+        cursor.close()
+
+    return result
+
+
+def search_face_in_collection(face_id, collection_id):
+    threshold = 70
+    max_faces = 2
+
+    response = client.search_faces(CollectionId=collection_id,
+                                   FaceId=face_id,
+                                   FaceMatchThreshold=threshold,
+                                   MaxFaces=max_faces)
+
+    face_matches = response['FaceMatches']
+    # print('Matching faces')
+    # for match in face_matches:
+    #     print('FaceId:' + match['Face']['FaceId'])
+    #     print('Similarity: ' + "{:.2f}".format(match['Similarity']) + "%")
+    #     print
+
+    return face_matches
+
+
 def lambda_handler(event, context):
+    isCommit = 0
+    connection = pymysql.connect(host='facecog-rds.cwct330tepas.ap-northeast-2.rds.amazonaws.com',
+                                 user='facecog',
+                                 password='!j14682533',
+                                 db='facecog',
+                                 charset='utf8mb4',
+                                 cursorclass=pymysql.cursors.DictCursor)
     bucket = event['Records'][0]['s3']['bucket']['name']
     photo = event['Records'][0]['s3']['object']['key']
     collection_id = 'Collection'
-
+    print(bucket, photo)
     facedata = add_faces_to_collection(bucket, photo, collection_id)
-    for i in facedata:
-        face = i['Face']
-        facedetail = i['FaceDetail']
-        landmarks = i['FaceDetail']['Landmarks']
+    print('아마존에 index_faces요청')
 
-        try:
+    f = facedata[0]['Face']
+    fd = facedata[0]['FaceDetail']
+    lm = facedata[0]['FaceDetail']['Landmarks']
+    faceId = f['FaceId']
 
-            # Connect to the database
-            connection = pymysql.connect(host='facecog-rds.cwct330tepas.ap-northeast-2.rds.amazonaws.com',
-                                         user='facecog',
-                                         password='!j14682533',
-                                         db='facecog',
-                                         charset='utf8mb4',
-                                         cursorclass=pymysql.cursors.DictCursor)
-            with connection.cursor() as cursor:
-                # Create a new record
-                sql = "INSERT INTO face(faceId, rec_top, rec_left, rec_width, rec_height, imageId, ExternalImageId, confidence) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
-                params = (face['FaceId'], face['BoundingBox']['Top'], face['BoundingBox']['Left'], face['BoundingBox']['Width'],
-                          face['BoundingBox']['Height'], face['ImageId'], face['ExternalImageId'], face['Confidence'])
-                result = cursor.execute(sql, params)
-                print(result)
-                connection.commit()
-        except:
-            print('에러')
-        finally:
-            connection.close()
+    sql = 'SELECT count(*) as count FROM face WHERE faceId = %s'
+    params = [faceId]
+    result = query('select', sql, params)
+    print('존재하는지 조회')
 
+    # photoname = photo.split('/')[1]
+    # sql = 'SELECT * FROM face WHERE id IN (SELECT face_id FROM user_face WHERE user_id = (SELECT user_id FROM user_face JOIN face ON face.id = user_face.face_id WHERE face.ExternalImageId= %s))'
+    # params = [photoname]
+    # haveface = query('select', sql, params)
 
-# faces_count=list_faces_in_collection(collection_id)
-# print("faces count: " + str(faces_count))
-# collection_id='family_collection'
-# status_code=delete_collection(collection_id)
-# print('Status code: ' + str(status_code))
+    if result[0]['count'] == 0:
+        print('이미지 미존재')
+        # insert face
+        sql = "INSERT INTO face(faceId, rec_top, rec_left, rec_width, rec_height, imageId, ExternalImageId, confidence) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
+        params = (f['FaceId'], f['BoundingBox']['Top'], f['BoundingBox']['Left'], f['BoundingBox']['Width'],
+                  f['BoundingBox']['Height'], f['ImageId'], f['ExternalImageId'], f['Confidence'])
+        result = query('insert', sql, params)
 
-# bucket='bucket'
-# collectionId='MyCollection'
-# fileName='input.jpg'
-# threshold = 70
-# maxFaces=2
+        # select key
+        sql = 'SELECT LAST_INSERT_ID() as face_id'
+        result = query('select', sql)
+        face_id = result[0]['face_id']
 
-# response=client.search_faces_by_image(CollectionId=collectionId,
-#                             Image={'S3Object':{'Bucket':bucket,'Name':fileName}},
-#                             FaceMatchThreshold=threshold,
-#                             MaxFaces=maxFaces)
+        # insert faceDetail
+        sql = 'INSERT INTO faceDetail(face_id, ageRange_low, ageRange_high, Smile, smileConfidence, eyeglasses, eyeglassesConfidence, sunglasses, sunglassesConfidence, gender, genderConfidence, beard, beardConfidence, mustache, mustacheConfidence, eyesOpen, eyesOpenConfidence, mouthOpen, mouthopenConfidence, supprised, calm, confused, disgusted, fear, happy, angry, sad, poseRoll, poseYaw, posePitch, quialityBrightness, qualitySharpness, confidence) VALUES (' + ('%s,'*32) + '%s)'
+        params = [face_id, fd['AgeRange']['Low'], fd['AgeRange']['High'], fd['Smile']['Value'], fd['Smile']['Confidence'], fd['Eyeglasses']['Value'], fd['Eyeglasses']['Confidence'], fd['Sunglasses']['Value'], fd['Sunglasses']['Confidence'], fd['Gender']['Value'], fd['Gender']['Confidence'], fd['Beard']['Value'], fd['Beard']['Confidence'], fd['Mustache']['Value'], fd['Mustache']['Confidence'], fd['EyesOpen']['Value'], fd['EyesOpen']
+                  ['Confidence'], fd['MouthOpen']['Value'], fd['MouthOpen']['Confidence'], fd['Emotions'][0]['Confidence'], fd['Emotions'][1]['Confidence'], fd['Emotions'][2]['Confidence'], fd['Emotions'][3]['Confidence'], fd['Emotions'][4]['Confidence'], fd['Emotions'][5]['Confidence'], fd['Emotions'][6]['Confidence'], fd['Emotions'][7]['Confidence'], fd['Pose']['Roll'], fd['Pose']['Yaw'], fd['Pose']['Pitch'], fd['Quality']['Brightness'], fd['Quality']['Sharpness'], fd['Confidence']]
+        result = query('insert', sql, params)
 
-# faceMatches=response['FaceMatches']
-# print ('Matching faces')
-# for match in faceMatches:
-#         print ('FaceId:' + match['Face']['FaceId'])
-#         print ('Similarity: ' + "{:.2f}".format(match['Similarity']) + "%")
-#         print
+        # insert faceLandMarks
+        sql = 'INSERT INTO faceLandMarks(face_id, eyeLeftX, eyeLeftY, eyeRightX, eyerightY, mouthLeftX, mouthLeftY, mouthRightX, mouthRightY, noseX, noseY, leftEyeBrowLeftX, leftEyeBrowLeftY, leftEyeBrowRightX, leftEyeBrowRightY, rightEyeBrowLeftX, rightEyeBrowLeftY, rightEyeBrowRightX, rightEyeBrowRightY, rightEyeBrowUpX, rightEyeBrowUpY, leftEyeLeftX, leftEyeLeftY, leftEyeRightX, leftEyeRightY, leftEyeUpX, leftEyeUpY, leftEyeDownX, leftEyeDownY, rightEyeLeftX, rightEyeLeftY, rightEyeRightX, rightEyeRightY, rightEyeUpX, rightEyeUpY, rightEyeDownX, rightEyeDownY, noseLeftX, noseLeftY, noseRightX, noseRightY, mouthUpX, mouthUpY, mouthDownX, mouthDownY, leftPupilX, leftPupilY, rightPupilX, rightPupilY, upperJawlineLeftX, upperJawlineLeftY, midJawlineLeftX, midJawlineLeftY, chinBottomX, chinBottomY, midJawlineRightX, midJawlineRightY, upperJawlineRightX, upperJawlineRightY) VALUES (' + ('%s,'*(59-1)) + '%s)'
+        params = [face_id, lm[0]['X'], lm[0]['Y'], lm[1]['X'], lm[1]['Y'], lm[2]['X'], lm[2]['Y'], lm[3]['X'], lm[3]['Y'], lm[4]['X'], lm[4]['Y'], lm[5]['X'], lm[5]['Y'], lm[6]['X'], lm[6]['Y'], lm[7]['X'], lm[7]['Y'], lm[8]['X'], lm[8]['Y'], lm[9]['X'], lm[9]['Y'], lm[10]['X'], lm[10]['Y'], lm[11]['X'], lm[11]['Y'], lm[12]['X'], lm[12]['Y'], lm[13]['X'], lm[13]['Y'], lm[14]['X'], lm[14]['Y'],
+                  lm[15]['X'], lm[15]['Y'], lm[16]['X'], lm[16]['Y'], lm[17]['X'], lm[17]['Y'], lm[18]['X'], lm[18]['Y'], lm[19]['X'], lm[19]['Y'], lm[20]['X'], lm[20]['Y'], lm[21]['X'], lm[21]['Y'], lm[22]['X'], lm[22]['Y'], lm[23]['X'], lm[23]['Y'], lm[24]['X'], lm[24]['Y'], lm[25]['X'], lm[25]['Y'], lm[26]['X'], lm[26]['Y'], lm[27]['X'], lm[27]['Y'], lm[28]['X'], lm[28]['Y']]
+        result = query('insert', sql, params)
 
-# 얼굴 감지
-# face_count=detect_faces(imageName, bucket)
-# print("Faces detected: " + str(face_count))
+    print('이미지가 추가된 상태임')
+    print('같은 얼굴이 존재하는지 검색하는 로직')
+    same_face = []
+    faces = search_face_in_collection(faceId, collection_id)
 
-# 컬렉션 생성
-# collection_id='Collection'
-# create_collection(collection_id)
+    print('같은얼굴 존재 갯수:' + str(len(faces)))
+    if len(faces):
+        same_face = faces[0]['Face']['FaceId']
+        # 얼굴 그룹 존재 여부
+        sql = 'SELECT faceGroup_id FROM face_faceGroup WHERE face_id = (SELECT id FROM face WHERE faceId = %s)'
+        params = [same_face]
+        result = query('select', sql, params)
 
-# 컬렉션 리스트
-# collection_count=list_collections()
-# print("collections: " + str(collection_count))
+        if len(result) == 0:
+            print('얼굴 그룹이 존재 하지않음. 데이터 추가작업시작')
+            sql = 'INSERT INTO faceGroup() VALUES ()'
+            result = query('insert', sql)
+            print(result)
 
-# 컬렉션 설명
-# collection_id='Collection'
-# describe_collection(collection_id)
+            # 방금 추가한 얼굴 그룹 id 얻기
+            # select key
+            sql = 'SELECT LAST_INSERT_ID() as faceGroup_id'
+            result = query('select', sql)
+            faceGroup_id = result[0]['faceGroup_id']
 
+            # 얼굴과 얼굴 그룹 연결
+            sql = 'INSERT INTO face_faceGroup(face_id, faceGroup_id) VALUES ((SELECT id FROM face WHERE faceId = %s), %s)'
+            params = [same_face, faceGroup_id]
+            result = query('insert', sql, params)
+            print(result)
+        else:
+            print('얼굴 그룹 존재함!!')
+            faceGroup_id = result[0]['faceGroup_id']
+
+        # 얼굴과 얼굴 그룹 연결
+        sql = 'INSERT INTO face_faceGroup(face_id, faceGroup_id) VALUES ((SELECT id FROM face WHERE faceId = %s), %s)'
+        params = [faceId, faceGroup_id]
+        result = query('insert', sql, params)
+        print(result)
+
+    if isCommit:
+        connection.commit()
     return {
         'statusCode': 200,
         'body': json.dumps('Hello from Lambda!')
         # 'content': json.dumps(bucket)
     }
+
+
+        # 얼굴 그룹에 데이터 추가
+        # faces_count=list_faces_in_collection(collection_id)
+        # print("faces count: " + str(faces_count))
+        # collection_id='family_collection'
+        # status_code=delete_collection(collection_id)
+        # print('Status code: ' + str(status_code))
+
+        # bucket='bucket'
+        # collectionId='MyCollection'
+        # fileName='input.jpg'
+        # threshold = 70
+        # maxFaces=2
+
+        # 얼굴 감지
+        # face_count=detect_faces(imageName, bucket)
+        # print("Faces detected: " + str(face_count))
+
+        # 컬렉션 생성
+        # collection_id='Collection'
+        # create_collection(collection_id)
+
+        # 컬렉션 리스트
+        # collection_count=list_collections()
+        # print("collections: " + str(collection_count))
+
+        # 컬렉션 설명
+        # collection_id='Collection'
+        # describe_collection(collection_id)
