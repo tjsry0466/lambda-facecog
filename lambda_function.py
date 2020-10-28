@@ -195,6 +195,7 @@ def lambda_handler(event, context):
     facedata = add_faces_to_collection(bucket, photo, collection_id)
     print('아마존에 index_faces요청')
 
+    print(facedata[0])
     f = facedata[0]['Face']
     fd = facedata[0]['FaceDetail']
     lm = facedata[0]['FaceDetail']['Landmarks']
@@ -217,6 +218,8 @@ def lambda_handler(event, context):
         params = (f['FaceId'], f['BoundingBox']['Top'], f['BoundingBox']['Left'], f['BoundingBox']['Width'],
                   f['BoundingBox']['Height'], f['ImageId'], f['ExternalImageId'], f['Confidence'])
         result = query('insert', sql, params)
+        if (result == 0):
+            print("face 데이터 추가 실패")
 
         # select key
         sql = 'SELECT LAST_INSERT_ID() as face_id'
@@ -224,16 +227,21 @@ def lambda_handler(event, context):
         face_id = result[0]['face_id']
 
         # insert faceDetail
-        sql = 'INSERT INTO faceDetail(face_id, ageRange_low, ageRange_high, Smile, smileConfidence, eyeglasses, eyeglassesConfidence, sunglasses, sunglassesConfidence, gender, genderConfidence, beard, beardConfidence, mustache, mustacheConfidence, eyesOpen, eyesOpenConfidence, mouthOpen, mouthopenConfidence, supprised, calm, confused, disgusted, fear, happy, angry, sad, poseRoll, poseYaw, posePitch, quialityBrightness, qualitySharpness, confidence) VALUES (' + ('%s,'*32) + '%s)'
+        sql = 'INSERT INTO faceInfo(face_id, ageRange_low, ageRange_high, Smile, smileConfidence, eyeglasses, eyeglassesConfidence, sunglasses, sunglassesConfidence, gender, genderConfidence, beard, beardConfidence, mustache, mustacheConfidence, eyesOpen, eyesOpenConfidence, mouthOpen, mouthopenConfidence, supprised, calm, confused, disgusted, fear, happy, angry, sad, poseRoll, poseYaw, posePitch, quialityBrightness, qualitySharpness, confidence) VALUES (' + ('%s,'*32) + '%s)'
         params = [face_id, fd['AgeRange']['Low'], fd['AgeRange']['High'], fd['Smile']['Value'], fd['Smile']['Confidence'], fd['Eyeglasses']['Value'], fd['Eyeglasses']['Confidence'], fd['Sunglasses']['Value'], fd['Sunglasses']['Confidence'], fd['Gender']['Value'], fd['Gender']['Confidence'], fd['Beard']['Value'], fd['Beard']['Confidence'], fd['Mustache']['Value'], fd['Mustache']['Confidence'], fd['EyesOpen']['Value'], fd['EyesOpen']
                   ['Confidence'], fd['MouthOpen']['Value'], fd['MouthOpen']['Confidence'], fd['Emotions'][0]['Confidence'], fd['Emotions'][1]['Confidence'], fd['Emotions'][2]['Confidence'], fd['Emotions'][3]['Confidence'], fd['Emotions'][4]['Confidence'], fd['Emotions'][5]['Confidence'], fd['Emotions'][6]['Confidence'], fd['Emotions'][7]['Confidence'], fd['Pose']['Roll'], fd['Pose']['Yaw'], fd['Pose']['Pitch'], fd['Quality']['Brightness'], fd['Quality']['Sharpness'], fd['Confidence']]
         result = query('insert', sql, params)
 
-        # insert faceLandMarks
-        sql = 'INSERT INTO faceLandMarks(face_id, eyeLeftX, eyeLeftY, eyeRightX, eyerightY, mouthLeftX, mouthLeftY, mouthRightX, mouthRightY, noseX, noseY, leftEyeBrowLeftX, leftEyeBrowLeftY, leftEyeBrowRightX, leftEyeBrowRightY, rightEyeBrowLeftX, rightEyeBrowLeftY, rightEyeBrowRightX, rightEyeBrowRightY, rightEyeBrowUpX, rightEyeBrowUpY, leftEyeLeftX, leftEyeLeftY, leftEyeRightX, leftEyeRightY, leftEyeUpX, leftEyeUpY, leftEyeDownX, leftEyeDownY, rightEyeLeftX, rightEyeLeftY, rightEyeRightX, rightEyeRightY, rightEyeUpX, rightEyeUpY, rightEyeDownX, rightEyeDownY, noseLeftX, noseLeftY, noseRightX, noseRightY, mouthUpX, mouthUpY, mouthDownX, mouthDownY, leftPupilX, leftPupilY, rightPupilX, rightPupilY, upperJawlineLeftX, upperJawlineLeftY, midJawlineLeftX, midJawlineLeftY, chinBottomX, chinBottomY, midJawlineRightX, midJawlineRightY, upperJawlineRightX, upperJawlineRightY) VALUES (' + ('%s,'*(59-1)) + '%s)'
+        if (result == 0):
+            print("faceInfo데이터 추가 실패")
+
+        # insert faceLandMark
+        sql = 'INSERT INTO faceLandMark(face_id, eyeLeftX, eyeLeftY, eyeRightX, eyerightY, mouthLeftX, mouthLeftY, mouthRightX, mouthRightY, noseX, noseY, leftEyeBrowLeftX, leftEyeBrowLeftY, leftEyeBrowRightX, leftEyeBrowRightY, rightEyeBrowLeftX, rightEyeBrowLeftY, rightEyeBrowRightX, rightEyeBrowRightY, rightEyeBrowUpX, rightEyeBrowUpY, leftEyeLeftX, leftEyeLeftY, leftEyeRightX, leftEyeRightY, leftEyeUpX, leftEyeUpY, leftEyeDownX, leftEyeDownY, rightEyeLeftX, rightEyeLeftY, rightEyeRightX, rightEyeRightY, rightEyeUpX, rightEyeUpY, rightEyeDownX, rightEyeDownY, noseLeftX, noseLeftY, noseRightX, noseRightY, mouthUpX, mouthUpY, mouthDownX, mouthDownY, leftPupilX, leftPupilY, rightPupilX, rightPupilY, upperJawlineLeftX, upperJawlineLeftY, midJawlineLeftX, midJawlineLeftY, chinBottomX, chinBottomY, midJawlineRightX, midJawlineRightY, upperJawlineRightX, upperJawlineRightY) VALUES (' + ('%s,'*(59-1)) + '%s)'
         params = [face_id, lm[0]['X'], lm[0]['Y'], lm[1]['X'], lm[1]['Y'], lm[2]['X'], lm[2]['Y'], lm[3]['X'], lm[3]['Y'], lm[4]['X'], lm[4]['Y'], lm[5]['X'], lm[5]['Y'], lm[6]['X'], lm[6]['Y'], lm[7]['X'], lm[7]['Y'], lm[8]['X'], lm[8]['Y'], lm[9]['X'], lm[9]['Y'], lm[10]['X'], lm[10]['Y'], lm[11]['X'], lm[11]['Y'], lm[12]['X'], lm[12]['Y'], lm[13]['X'], lm[13]['Y'], lm[14]['X'], lm[14]['Y'],
                   lm[15]['X'], lm[15]['Y'], lm[16]['X'], lm[16]['Y'], lm[17]['X'], lm[17]['Y'], lm[18]['X'], lm[18]['Y'], lm[19]['X'], lm[19]['Y'], lm[20]['X'], lm[20]['Y'], lm[21]['X'], lm[21]['Y'], lm[22]['X'], lm[22]['Y'], lm[23]['X'], lm[23]['Y'], lm[24]['X'], lm[24]['Y'], lm[25]['X'], lm[25]['Y'], lm[26]['X'], lm[26]['Y'], lm[27]['X'], lm[27]['Y'], lm[28]['X'], lm[28]['Y']]
         result = query('insert', sql, params)
+        if (result == 0):
+            print("faceLandMark 추가 실패")
 
     print('이미지가 추가된 상태임')
     print('같은 얼굴이 존재하는지 검색하는 로직')
@@ -244,7 +252,7 @@ def lambda_handler(event, context):
     if len(faces):
         same_face = faces[0]['Face']['FaceId']
         # 얼굴 그룹 존재 여부
-        sql = 'SELECT faceGroup_id FROM face_faceGroup WHERE face_id = (SELECT id FROM face WHERE faceId = %s)'
+        sql = 'SELECT faceGroup_id FROM faceToGroup WHERE face_id = (SELECT id FROM face WHERE faceId = %s)'
         params = [same_face]
         result = query('select', sql, params)
 
@@ -259,10 +267,10 @@ def lambda_handler(event, context):
             sql = 'SELECT LAST_INSERT_ID() as faceGroup_id'
             result = query('select', sql)
             faceGroup_id = result[0]['faceGroup_id']
-
             # 얼굴과 얼굴 그룹 연결
-            sql = 'INSERT INTO face_faceGroup(face_id, faceGroup_id) VALUES ((SELECT id FROM face WHERE faceId = %s), %s)'
-            params = [same_face, faceGroup_id]
+            sql = 'INSERT INTO faceToGroup(faceGroup_id, face_id) VALUES (%s, (SELECT id FROM face WHERE faceId = %s))'
+            print(faceGroup_id, same_face)
+            params = [faceGroup_id, same_face]
             result = query('insert', sql, params)
             print(result)
         else:
@@ -270,10 +278,10 @@ def lambda_handler(event, context):
             faceGroup_id = result[0]['faceGroup_id']
 
         # 얼굴과 얼굴 그룹 연결
-        sql = 'INSERT INTO face_faceGroup(face_id, faceGroup_id) VALUES ((SELECT id FROM face WHERE faceId = %s), %s)'
-        params = [faceId, faceGroup_id]
+        sql = 'INSERT INTO faceToGroup(faceGroup_id, face_id) VALUES (%s, (SELECT id FROM face WHERE faceId = %s))'
+        print('확인 ---')
+        print(faceGroup_id, faceId)
         result = query('insert', sql, params)
-        print(result)
 
     if isCommit:
         connection.commit()
@@ -283,32 +291,31 @@ def lambda_handler(event, context):
         # 'content': json.dumps(bucket)
     }
 
+    # 얼굴 그룹에 데이터 추가
+    # faces_count=list_faces_in_collection(collection_id)
+    # print("faces count: " + str(faces_count))
+    # collection_id='family_collection'
+    # status_code=delete_collection(collection_id)
+    # print('Status code: ' + str(status_code))
 
-        # 얼굴 그룹에 데이터 추가
-        # faces_count=list_faces_in_collection(collection_id)
-        # print("faces count: " + str(faces_count))
-        # collection_id='family_collection'
-        # status_code=delete_collection(collection_id)
-        # print('Status code: ' + str(status_code))
+    # bucket='bucket'
+    # collectionId='MyCollection'
+    # fileName='input.jpg'
+    # threshold = 70
+    # maxFaces=2
 
-        # bucket='bucket'
-        # collectionId='MyCollection'
-        # fileName='input.jpg'
-        # threshold = 70
-        # maxFaces=2
+    # 얼굴 감지
+    # face_count=detect_faces(imageName, bucket)
+    # print("Faces detected: " + str(face_count))
 
-        # 얼굴 감지
-        # face_count=detect_faces(imageName, bucket)
-        # print("Faces detected: " + str(face_count))
+    # 컬렉션 생성
+    # collection_id='Collection'
+    # create_collection(collection_id)
 
-        # 컬렉션 생성
-        # collection_id='Collection'
-        # create_collection(collection_id)
+    # 컬렉션 리스트
+    # collection_count=list_collections()
+    # print("collections: " + str(collection_count))
 
-        # 컬렉션 리스트
-        # collection_count=list_collections()
-        # print("collections: " + str(collection_count))
-
-        # 컬렉션 설명
-        # collection_id='Collection'
-        # describe_collection(collection_id)
+    # 컬렉션 설명
+    # collection_id='Collection'
+    # describe_collection(collection_id)
