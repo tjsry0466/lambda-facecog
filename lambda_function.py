@@ -252,6 +252,7 @@ def lambda_handler(event, context):
     if len(faces):
         same_face = faces[0]['Face']['FaceId']
         # 얼굴 그룹 존재 여부
+        # 같은 얼굴 그룹에 대해서 검사하는 로직 필요
         sql = 'SELECT faceGroup_id FROM faceToGroup WHERE face_id = (SELECT id FROM face WHERE faceId = %s)'
         params = [same_face]
         result = query('select', sql, params)
